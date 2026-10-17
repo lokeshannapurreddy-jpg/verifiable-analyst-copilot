@@ -339,27 +339,50 @@ st.markdown(
 # ---------------------------------------------------------------------
 @st.cache_resource(show_spinner="Reading the report and preparing evidence search…")
 def load_retriever():
-    if not REPORTS_DIR.exists():
-        raise FileNotFoundError(
-            f"Reports folder was not found: {REPORTS_DIR}"
+    import tempfile
+    import urllib.request
+
+    from src.ingest import ingest_pdf
+    from src.rag import EvidenceRetriever
+
+    local_pdf = REPORTS_DIR / "iocta_report.pdf"
+
+    if local_pdf.is_file():
+        report_path = local_pdf
+    else:
+        report_url = (
+            "https://www.europol.europa.eu/cms/sites/default/files/"
+            "documents/Steal-deal-repeat-IOCTA_2025.pdf"
+        )
+        report_path = Path(tempfile.gettempdir()) / "iocta_report.pdf"
+
+        if not report_path.is_file() or report_path.stat().st_size == 0:
+            request = urllib.request.Request(
+                report_url,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(request, timeout=90) as response:
+                pdf_bytes = response.read()
+
+            if not pdf_bytes.startswith(b"%PDF-"):
+                raise ValueError("Europol did not return a valid PDF.")
+
+            report_path.write_bytes(pdf_bytes)
+
+    chunks = ingest_pdf(
+        report_path,
+        title=EUROPOL_TITLE,
+        url=EUROPOL_URL,
+    )
+
+    if not chunks:
+        raise ValueError(
+            "The PDF was loaded, but no readable text was extracted."
         )
 
-    chunks = ingest_directory(REPORTS_DIR)
-    enriched_chunks = []
-
-    for chunk in chunks:
-        if chunk.source.lower() == "iocta_report.pdf":
-            chunk = replace(
-                chunk,
-                title=EUROPOL_TITLE,
-                url=EUROPOL_URL,
-            )
-        enriched_chunks.append(chunk)
-
-    return EvidenceRetriever(enriched_chunks)
+    return EvidenceRetriever(chunks)
 
 
-# ---------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------
 with st.sidebar:
