@@ -16,8 +16,25 @@ This project demonstrates how information retrieval can help analysts find relev
 * Provides a Streamlit user interface.
 * Includes automated tests for retrieval and answer selection.
 
-## Technology Stack
+## Project Screenshots
 
+### Main Dashboard
+![Main dashboard](Screenshots/dashboard.png.png)
+
+### Research Question
+![Research question interface](Screenshots/research-question.png.png)
+
+### Evidence-Based Results
+![Evidence-based answer](<Screenshots/evidence-results.png.png>)
+
+![Additional evidence results](<Screenshots/evidence-results.png (2).png>)
+
+![Additional evidence results](<Screenshots/evidence-results.png (3).png>)
+
+### About the Project
+![About project page](Screenshots/about-project.png.png)
+
+## Technology Stack
 Python, scikit-learn, FastAPI, Uvicorn, Streamlit, PyPDF, pytest, and HTTPX.
 
 ## Project Structure
