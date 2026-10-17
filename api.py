@@ -1,10 +1,12 @@
 ﻿"""FastAPI backend for the Verifiable Analyst Copilot."""
 
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+from src.answer import generate_answer
 from src.ingest import ingest_directory
 from src.rag import EvidenceRetriever
 
@@ -15,7 +17,7 @@ app = FastAPI(
         "A source-grounded assistant for public cybercrime "
         "reports and statistics."
     ),
-    version="0.1.0",
+    version="0.2.0",
 )
 
 REPORTS_DIRECTORY = Path("data/reports")
@@ -39,19 +41,20 @@ def load_documents() -> int:
     global retriever
 
     chunks = ingest_directory(REPORTS_DIRECTORY)
+    updated_chunks = []
 
     for chunk in chunks:
         if chunk.source == "iocta_report.pdf":
-            # DocumentChunk is immutable, so replace each matching chunk.
-            from dataclasses import replace
-            chunks[chunks.index(chunk)] = replace(
+            chunk = replace(
                 chunk,
                 title=EUROPOL_TITLE,
                 url=EUROPOL_URL,
             )
 
-    retriever = EvidenceRetriever(chunks)
-    return len(chunks)
+        updated_chunks.append(chunk)
+
+    retriever = EvidenceRetriever(updated_chunks)
+    return len(updated_chunks)
 
 
 class AskRequest(BaseModel):
@@ -68,6 +71,7 @@ class AskResponse(BaseModel):
 
 @app.get("/health")
 def health():
+    """Report API status and indexed passage count."""
     return {
         "status": "healthy",
         "project": "Verifiable Analyst Copilot",
@@ -77,6 +81,7 @@ def health():
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
+    """Retrieve evidence and generate an extractive answer."""
     results = retriever.search(
         request.question,
         top_k=request.top_k,
@@ -94,18 +99,7 @@ def ask(request: AskRequest):
         for result in results
     ]
 
-    if results:
-        answer = (
-            "Retrieved evidence is provided below. "
-            "This baseline version does not yet generate "
-            "a synthesized AI answer."
-        )
-    else:
-        answer = (
-            "I could not find sufficiently relevant evidence "
-            "in the currently indexed documents. "
-            "No factual answer is provided."
-        )
+    answer = generate_answer(request.question, results)
 
     return AskResponse(
         question=request.question,
@@ -117,7 +111,7 @@ def ask(request: AskRequest):
 
 @app.post("/reload")
 def reload_documents():
-    """Re-index PDFs currently present in data/reports."""
+    """Re-index PDFs currently present in the reports directory."""
     try:
         count = load_documents()
         return {
