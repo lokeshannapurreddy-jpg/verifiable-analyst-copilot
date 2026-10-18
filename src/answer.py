@@ -29,7 +29,10 @@ TECHNIQUE_TERMS = {
     "exploit", "exploits", "exploitation", "kits", "brute",
     "force", "supply", "chain", "social", "engineering",
     "phishing", "vulnerabilities", "credentials", "attacks",
-    "attack", "compromise", "compromise", "misconfigured",
+    "attack", "compromise", "misconfigured", "malware",
+    "malicious", "attachments", "urls", "websites", "dropper",
+    "botnet", "malvertising", "infostealers", "infostealer",
+    "distribution", "distribute", "campaigns", "advertising",
 }
 
 
@@ -102,11 +105,11 @@ def _clean_text(text: str) -> str:
 
     # Remove footnote letters attached to lowercase words:
     # "actorsB" becomes "actors".
-    text = re.sub(r"(?<=[a-z])[ABC]\b", "", text)
+    text = re.sub(r"(?<=[a-z])[ABCF]\b", "", text)
 
     # Remove footnote letters following a closing parenthesis:
     # "(APT)A" becomes "(APT)".
-    text = re.sub(r"(?<=\))[ABC]\b", "", text)
+    text = re.sub(r"(?<=\))[ABCF]\b", "", text)
 
     # Remove standalone footnote letters after punctuation.
     text = re.sub(r"(?<=[.!?])\s+[ABC]\b", "", text)
@@ -308,12 +311,33 @@ def generate_answer(question: str, results: list[SearchResult]) -> str:
                 + 0.25 * precision
             )
 
-            # Give a modest boost to sentences naming concrete techniques.
+            # Prioritise concrete delivery methods for malware questions.
+            is_malware_delivery_question = (
+                "malware" in question_words
+                and "delivery" in question_words
+            )
+            delivery_terms = {
+                "phishing", "attachments", "urls", "websites",
+                "malvertising", "dropper", "botnet", "malware",
+                "infostealers", "infostealer", "distribution",
+                "distribute", "advertising",
+            }
+
             if question_words.intersection({
                 "technique", "techniques", "method", "methods",
             }):
                 if sentence_words.intersection(TECHNIQUE_TERMS):
                     score += 0.10
+
+            if is_malware_delivery_question:
+                if sentence_words.intersection(delivery_terms):
+                    score += 0.30
+                if (
+                    "personal" in sentence_words
+                    and "access" in sentence_words
+                    and not sentence_words.intersection(delivery_terms)
+                ):
+                    score -= 0.15
 
             candidates.append({
                 "sentence": sentence,
