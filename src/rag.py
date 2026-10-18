@@ -28,6 +28,13 @@ class SearchResult:
 class EvidenceRetriever:
     """Retrieve passages using TF-IDF and lexical relevance checks."""
 
+    QUESTION_FILLER = {
+        "report", "reports", "say", "says", "tell", "tells",
+        "describe", "describes", "explain", "explains",
+        "discuss", "discusses", "mention", "mentions",
+        "according", "document", "documents",
+    }
+
     def __init__(self, chunks: Iterable[DocumentChunk] = ()):
         self.chunks = list(chunks)
         self.vectorizer = TfidfVectorizer(
@@ -41,7 +48,6 @@ class EvidenceRetriever:
     def _fit(self) -> None:
         """Build the searchable index, excluding empty passages."""
         self.matrix = None
-
         self.chunks = [
             chunk for chunk in self.chunks
             if chunk.text and chunk.text.strip()
@@ -59,13 +65,15 @@ class EvidenceRetriever:
         self.chunks.extend(chunks)
         self._fit()
 
-    @staticmethod
-    def _keywords(text: str) -> set[str]:
-        """Extract meaningful words."""
+    @classmethod
+    def _keywords(cls, text: str) -> set[str]:
+        """Extract meaningful topic words, excluding question filler."""
         words = re.findall(r"[a-zA-Z0-9]+", text.lower())
         return {
             word for word in words
-            if len(word) > 2 and word not in ENGLISH_STOP_WORDS
+            if len(word) > 2
+            and word not in ENGLISH_STOP_WORDS
+            and word not in cls.QUESTION_FILLER
         }
 
     @staticmethod
@@ -90,6 +98,8 @@ class EvidenceRetriever:
         reference_signals = (
             "available at http://",
             "available at https://",
+            "accessible at http://",
+            "accessible at https://",
             "retrieved from http://",
             "retrieved from https://",
             "doi.org/",
@@ -99,10 +109,12 @@ class EvidenceRetriever:
         if any(signal in joined for signal in reference_signals):
             return True
 
+        # PDF extraction sometimes wraps bibliography entries into one line.
         citation_start = re.compile(
-            r"^(?:\[?\d{1,3}\]?\.?\s*)?"
-            r"[A-Z][A-Za-z0-9&.,'?() -]{1,80},\s*(?:19|20)\d{2}\b"
+            r"^(?:\[\s*\d{1,3}\s*\]\.?\s*)?"
+            r"[A-Z][A-Za-z0-9&.,'’() -]{1,80},\s*(?:19|20)\d{2}\b"
         )
+
         citation_lines = sum(
             bool(citation_start.search(line)) for line in lines
         )
@@ -150,7 +162,8 @@ class EvidenceRetriever:
                 query_keywords.intersection(self._keywords(chunk.text))
             )
 
-            if len(matched_keywords) < 2:
+            # A single distinctive topic word is enough for short queries.
+            if not matched_keywords:
                 continue
 
             results.append(SearchResult(chunk=chunk, score=score))

@@ -104,3 +104,44 @@ def test_bibliography_entries_are_not_returned():
         "TrendMicro" not in result.chunk.text
         for result in results
     )
+from src.rag import DocumentChunk, EvidenceRetriever
+
+
+def test_simple_malware_question_retrieves_relevant_evidence():
+    chunks = [
+        DocumentChunk(
+            text=(
+                "Europol, 2025, Cybercrime Threat Assessment, "
+                "accessible at https://example.org/malware-report."
+            ),
+            source="cybercrime_report.pdf",
+            page=25,
+            title="Cybercrime Report",
+        ),
+        DocumentChunk(
+            text=(
+                "Phishing techniques are the main vector for the "
+                "distribution of infostealers. Criminals send emails, "
+                "text messages or social media messages containing "
+                "malicious attachments or URLs that introduce malware "
+                "into victims' systems. Malicious websites can also "
+                "distribute malware through search engine advertising."
+            ),
+            source="cybercrime_report.pdf",
+            page=13,
+            title="Cybercrime Report",
+        ),
+    ]
+
+    retriever = EvidenceRetriever(chunks)
+    results = retriever.search("What does the report say about malware?")
+
+    assert results
+    assert any(
+        "introduce malware into victims' systems" in result.chunk.text
+        for result in results
+    )
+    assert all(
+        "accessible at https://example.org" not in result.chunk.text
+        for result in results
+    )

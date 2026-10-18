@@ -80,3 +80,42 @@ def test_answer_excludes_malformed_apt_footnote():
         make_results(),
     )
     assert "a adv anced persistent threat" not in answer.lower()
+from src.answer import generate_answer
+from src.rag import DocumentChunk, EvidenceRetriever
+
+
+def test_malware_delivery_answer_prioritises_delivery_techniques():
+    chunks = [
+        DocumentChunk(
+            text=(
+                "Cybercriminals use a variety of techniques to access "
+                "personal data that exploit either system vulnerabilities "
+                "or human oversight."
+            ),
+            source="iocta_report.pdf",
+            page=12,
+            title="IOCTA 2025",
+        ),
+        DocumentChunk(
+            text=(
+                "Phishing techniques are the main vector for the "
+                "distribution of infostealers. Criminals send emails, "
+                "text messages or messages on social media that contain "
+                "malicious attachments or URLs which introduce malware "
+                "into the victim's system. Malicious websites are also "
+                "used to distribute malware through search engine "
+                "advertising and search engine optimisation poisoning."
+            ),
+            source="iocta_report.pdf",
+            page=13,
+            title="IOCTA 2025",
+        ),
+    ]
+
+    retriever = EvidenceRetriever(chunks)
+    question = "What malware delivery techniques do cybercriminals use?"
+    results = retriever.search(question, top_k=5)
+    answer = generate_answer(question, results)
+
+    assert "p. 13" in answer
+    assert "phishing" in answer.lower() or "malicious attachments" in answer.lower()
