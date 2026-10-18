@@ -28,13 +28,6 @@ class SearchResult:
 class EvidenceRetriever:
     """Retrieve passages using TF-IDF and lexical relevance checks."""
 
-    QUESTION_FILLER = {
-        "report", "reports", "say", "says", "tell", "tells",
-        "describe", "describes", "explain", "explains",
-        "discuss", "discusses", "mention", "mentions",
-        "according", "document", "documents",
-    }
-
     def __init__(self, chunks: Iterable[DocumentChunk] = ()):
         self.chunks = list(chunks)
         self.vectorizer = TfidfVectorizer(
@@ -48,6 +41,7 @@ class EvidenceRetriever:
     def _fit(self) -> None:
         """Build the searchable index, excluding empty passages."""
         self.matrix = None
+
         self.chunks = [
             chunk for chunk in self.chunks
             if chunk.text and chunk.text.strip()
@@ -65,15 +59,13 @@ class EvidenceRetriever:
         self.chunks.extend(chunks)
         self._fit()
 
-    @classmethod
-    def _keywords(cls, text: str) -> set[str]:
-        """Extract meaningful topic words, excluding question filler."""
+    @staticmethod
+    def _keywords(text: str) -> set[str]:
+        """Extract meaningful words."""
         words = re.findall(r"[a-zA-Z0-9]+", text.lower())
         return {
             word for word in words
-            if len(word) > 2
-            and word not in ENGLISH_STOP_WORDS
-            and word not in cls.QUESTION_FILLER
+            if len(word) > 2 and word not in ENGLISH_STOP_WORDS
         }
 
     @staticmethod
@@ -98,8 +90,6 @@ class EvidenceRetriever:
         reference_signals = (
             "available at http://",
             "available at https://",
-            "accessible at http://",
-            "accessible at https://",
             "retrieved from http://",
             "retrieved from https://",
             "doi.org/",
@@ -109,12 +99,10 @@ class EvidenceRetriever:
         if any(signal in joined for signal in reference_signals):
             return True
 
-        # PDF extraction sometimes wraps bibliography entries into one line.
         citation_start = re.compile(
-            r"^(?:\[\s*\d{1,3}\s*\]\.?\s*)?"
-            r"[A-Z][A-Za-z0-9&.,'’() -]{1,80},\s*(?:19|20)\d{2}\b"
+            r"^(?:\[?\d{1,3}\]?\.?\s*)?"
+            r"[A-Z][A-Za-z0-9&.,'?() -]{1,80},\s*(?:19|20)\d{2}\b"
         )
-
         citation_lines = sum(
             bool(citation_start.search(line)) for line in lines
         )
@@ -129,10 +117,9 @@ class EvidenceRetriever:
         top_k: int = 3,
         min_score: float = 0.01,
     ) -> list[SearchResult]:
-        """Return relevant, sufficiently substantive passages."""
+        """Retrieve useful passages using TF-IDF with keyword-overlap boosting."""
         if not query or not query.strip() or top_k < 1:
             return []
-
         if self.matrix is None:
             return []
 
@@ -142,62 +129,82 @@ class EvidenceRetriever:
 
         query_vector = self.vectorizer.transform([query])
         scores = cosine_similarity(query_vector, self.matrix).ravel()
-        ranked_indices = scores.argsort()[::-1]
-        results = []
+        candidates = []
 
-        for index in ranked_indices:
-            score = float(scores[index])
+        for index, raw_score in enumerate(scores):
+            score = float(raw_score)
             if score < min_score:
                 continue
 
-            chunk = self.chunks[int(index)]
-
+            chunk = self.chunks[index]
             if not self._is_useful_passage(chunk.text):
                 continue
-
             if self._is_reference_passage(chunk.text):
                 continue
 
-            matched_keywords = (
-                query_keywords.intersection(self._keywords(chunk.text))
-            )
-
-            # A single distinctive topic word is enough for short queries.
-            if not matched_keywords:
+            matched = query_keywords.intersection(self._keywords(chunk.text))
+            if not matched:
                 continue
 
-            results.append(SearchResult(chunk=chunk, score=score))
+            overlap = len(matched) / len(query_keywords)
+            adjusted_score = score * (1.0 + 0.25 * overlap)
+            candidates.append(
+                SearchResult(chunk=chunk, score=adjusted_score)
+            )
 
-            if len(results) >= top_k:
-                break
+        candidates.sort(key=lambda result: result.score, reverse=True)
 
-        return results
+        # Preserve multiple relevant passages from the same page.
+        return candidates[:top_k]
 
 
-def format_evidence(results: list[SearchResult]) -> str:
-    """Format retrieved passages with traceable source metadata."""
-    if not results:
-        return (
-            "No sufficiently relevant evidence was found in the "
-            "indexed documents. Do not infer an answer."
+class EmbeddingEvidenceRetriever:
+    """Retrieve passages using semantic embeddings."""
+
+    def __init__(self, chunks=(), model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
+        from sentence_transformers import SentenceTransformer
+        self.chunks = list(chunks)
+        self.model = SentenceTransformer(model_name)
+        self.embeddings = (
+            self.model.encode([c.text for c in self.chunks], normalize_embeddings=True)
+            if self.chunks else []
         )
 
-    sections = []
+    def search(self, query, top_k=3, min_score=0.01):
+        if not self.chunks or not query.strip() or top_k < 1:
+            return []
+        import numpy as np
+        vector = self.model.encode([query], normalize_embeddings=True)[0]
+        scores = np.asarray(self.embeddings) @ vector
+        indices = np.argsort(scores)[::-1]
+        return [
+            SearchResult(self.chunks[int(i)], float(scores[i]))
+            for i in indices if scores[i] >= min_score
+        ][:top_k]
 
-    for number, result in enumerate(results, start=1):
-        chunk = result.chunk
-        source_line = (
-            f"[{number}] {chunk.title} | "
-            f"Page: {chunk.page} | Source: {chunk.source}"
-        )
 
-        if chunk.url:
-            source_line += f" | URL: {chunk.url}"
+class HybridEvidenceRetriever:
+    """Combine lexical and semantic retrieval rankings."""
 
-        sections.append(
-            f"{source_line}\n"
-            f"Relevance score: {result.score:.3f}\n"
-            f"Evidence: {chunk.text}"
-        )
+    def __init__(self, chunks=()):
+        self.chunks = list(chunks)
+        self.lexical = EvidenceRetriever(self.chunks)
+        self.semantic = EmbeddingEvidenceRetriever(self.chunks)
 
-    return "\n\n".join(sections)
+    def search(self, query, top_k=3, min_score=0.01):
+        rankings = [
+            self.lexical.search(query, top_k=max(top_k * 3, 10), min_score=0),
+            self.semantic.search(query, top_k=max(top_k * 3, 10), min_score=0),
+        ]
+        scores = {}
+        results = {}
+        for ranking in rankings:
+            for rank, result in enumerate(ranking, start=1):
+                key = (result.chunk.source, result.chunk.page, result.chunk.text)
+                scores[key] = scores.get(key, 0) + 1 / (60 + rank)
+                results[key] = result.chunk
+        ordered = sorted(scores, key=scores.get, reverse=True)
+        return [
+            SearchResult(results[key], scores[key])
+            for key in ordered[:top_k]
+        ]
