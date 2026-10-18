@@ -88,10 +88,10 @@ def _clean_text(text: str) -> str:
     )
     text = re.sub(r"\bIOCTA\s+2025\b", " ", text, flags=re.IGNORECASE)
 
-    # Remove a known footnote definition block when it is present.
+    # Repair malformed APT footnote labels without deleting later evidence.
     text = re.sub(
-        r"\bA\s+Advanced\s+persistent\s+threat\s*\(APT\).*",
-        " ",
+        r"\bA\s+Advanced\s+persistent\s+threat\s*\(APT\)",
+        "Advanced persistent threat (APT)",
         text,
         flags=re.IGNORECASE,
     )
@@ -119,7 +119,9 @@ def _clean_text(text: str) -> str:
 
 def _split_sentences(text: str) -> list[str]:
     """Split normalized text into candidate sentences."""
-    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text)
+    # PDF extraction may lowercase the first word of a new sentence.
+    # Split after sentence punctuation even when the next word is lowercase.
+    parts = re.split(r"(?<=[.!?])\s+", text)
 
     return [
         part.strip(" \t\r\n-")
@@ -217,14 +219,40 @@ def _expand_question_terms(question_words: set[str]) -> set[str]:
         })
 
     if question_words.intersection({
-        "pose", "poses", "threat", "threats",
+        "pose", "poses", "threat", "threats", "risk", "risks",
     }):
         expanded.update({
             "espionage", "coercion", "disruption",
             "instability", "governments", "infrastructure",
+            "theft", "destruction", "malicious", "activity",
         })
 
     return expanded
+
+
+def _is_reference_sentence(sentence: str) -> bool:
+    """Reject bibliographic references and citation-only sentences."""
+    lowered = sentence.casefold()
+
+    signals = (
+        "available at http",
+        "retrieved from http",
+        "doi.org/",
+        "all rights reserved",
+        "isbn ",
+    )
+
+    if any(signal in lowered for signal in signals):
+        return True
+
+    # A reference-like author/year opening is not substantive evidence.
+    if re.match(
+        r"^[A-Z][A-Za-z&.' -]{1,60},\s*(?:19|20)\d{2}\b",
+        sentence.strip(),
+    ):
+        return True
+
+    return False
 
 
 def generate_answer(question: str, results: list[SearchResult]) -> str:
@@ -257,20 +285,27 @@ def generate_answer(question: str, results: list[SearchResult]) -> str:
             if not _complete_sentence(sentence):
                 continue
 
+            if _is_reference_sentence(sentence):
+                continue
+
             sentence_words = _words(sentence)
             overlap = expanded_terms.intersection(sentence_words)
 
             if not overlap:
                 continue
 
-            coverage = len(overlap) / max(len(expanded_terms), 1)
+            # Measure coverage against the original question terms.
+            # Expanded terms help matching but should not penalise
+            # sentences for missing every possible related concept.
+            original_overlap = sentence_words & question_words
+            coverage = len(original_overlap) / max(len(question_words), 1)
             precision = len(overlap) / max(len(sentence_words), 1)
 
             # Combine retrieval relevance with question-term overlap.
             score = (
-                0.45 * result.score
-                + 0.35 * coverage
-                + 0.20 * precision
+                0.30 * result.score
+                + 0.45 * coverage
+                + 0.25 * precision
             )
 
             # Give a modest boost to sentences naming concrete techniques.
@@ -294,6 +329,19 @@ def generate_answer(question: str, results: list[SearchResult]) -> str:
         return (
             "Relevant passages were retrieved, but no complete sentence "
             "with matching terms could be identified. "
+            "No factual answer is provided."
+        )
+
+    # Avoid presenting weak keyword matches as factual answers.
+    candidates = [
+        item for item in candidates
+        if item["score"] >= 0.08
+    ]
+
+    if not candidates:
+        return (
+            "Relevant passages were retrieved, but the available sentences "
+            "did not meet the answer relevance threshold. "
             "No factual answer is provided."
         )
 

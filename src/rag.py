@@ -78,6 +78,39 @@ class EvidenceRetriever:
         }
         return len(meaningful) >= 12
 
+    @staticmethod
+    def _is_reference_passage(text: str) -> bool:
+        """Reject bibliography entries and source-list fragments."""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return True
+
+        joined = " ".join(lines).lower()
+
+        reference_signals = (
+            "available at http://",
+            "available at https://",
+            "retrieved from http://",
+            "retrieved from https://",
+            "doi.org/",
+            "the ever-evolving threat of the russian-speaking cybercriminal underground",
+        )
+
+        if any(signal in joined for signal in reference_signals):
+            return True
+
+        citation_start = re.compile(
+            r"^(?:\[?\d{1,3}\]?\.?\s*)?"
+            r"[A-Z][A-Za-z0-9&.,'?() -]{1,80},\s*(?:19|20)\d{2}\b"
+        )
+        citation_lines = sum(
+            bool(citation_start.search(line)) for line in lines
+        )
+
+        return citation_lines >= 2 or (
+            len(lines) <= 2 and citation_lines == 1
+        )
+
     def search(
         self,
         query: str,
@@ -108,6 +141,9 @@ class EvidenceRetriever:
             chunk = self.chunks[int(index)]
 
             if not self._is_useful_passage(chunk.text):
+                continue
+
+            if self._is_reference_passage(chunk.text):
                 continue
 
             matched_keywords = (

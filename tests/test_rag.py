@@ -67,3 +67,40 @@ def test_publication_boilerplate_is_not_returned():
 def test_empty_question_returns_no_evidence():
     retriever = make_retriever()
     assert retriever.search("") == []
+
+def test_bibliography_entries_are_not_returned():
+    chunks = [
+        DocumentChunk(
+            text=(
+                "TrendMicro, 2025, The Ever-Evolving Threat of the "
+                "Russian-Speaking Cybercriminal Underground. "
+                "Available at https://example.org/report."
+            ),
+            source="cybercrime_report.pdf",
+            page=26,
+            title="Cybercrime Report",
+        ),
+        DocumentChunk(
+            text=(
+                "Cybercriminals use phishing and stolen credentials "
+                "to gain access to organisational systems. These "
+                "methods can expose sensitive information and "
+                "enable further criminal activity."
+            ),
+            source="cybercrime_report.pdf",
+            page=17,
+            title="Cybercrime Report",
+        ),
+    ]
+
+    retriever = EvidenceRetriever(chunks)
+    results = retriever.search(
+        "What techniques do cybercriminals use to gain access?",
+        top_k=3,
+    )
+
+    assert results
+    assert all(
+        "TrendMicro" not in result.chunk.text
+        for result in results
+    )
