@@ -55,7 +55,7 @@ Each API request without a `session_id` receives a fresh session. Reuse the retu
 | --- | --- |
 | `RETRIEVER_BACKEND` | `tfidf` by default; `semantic` or `hybrid` requires `requirements-ml.txt`. |
 | `ANSWER_MODE` | `extractive` by default; `llm` requires `requirements-llm.txt` and `OPENAI_API_KEY`. |
-| `OPENAI_API_KEY` | OpenAI credential for optional LLM answer generation. Supply it through the environment or an untracked local `.env`; never commit it. |
+| `OPENAI_API_KEY` | OpenAI credential for optional LLM answer generation. Supply it in the process environment for local runs or in the untracked `.env` read by Docker Compose; never commit it. |
 | `OPENAI_MODEL` | Model name for optional OpenAI generation. |
 | `RELOAD_ADMIN_KEY` | Optional key to protect the API document reload endpoint. |
 | `DATABASE_URL` | Optional telemetry database connection; SQLite is used by default. Compose configures PostgreSQL. |
@@ -67,7 +67,7 @@ For local TF-IDF and extractive use, the base `requirements.txt` is sufficient. 
 .\.venv\Scripts\python.exe -m pip install -r requirements-llm.txt  # optional OpenAI generation
 ```
 
-The Docker build supports one optional dependency mode at a time: set `OPTIONAL_DEPENDENCIES=ml` or `OPTIONAL_DEPENDENCIES=llm` in `.env`, then rebuild. These modes cannot be combined in one image. For LLM use, also set `ANSWER_MODE=llm` and supply `OPENAI_API_KEY` securely. OpenAI requests have a 20-second timeout with automatic retries disabled; failures fall back to the extractive path.
+The Docker build supports one optional dependency mode at a time: set `OPTIONAL_DEPENDENCIES=ml` or `OPTIONAL_DEPENDENCIES=llm` in `.env`, then rebuild. These modes cannot be combined in one image. For LLM use, also set `ANSWER_MODE=llm` and supply `OPENAI_API_KEY` securely. A missing key or OpenAI package returns an actionable configuration message. Requests have a 20-second timeout, a 256-token completion limit, and automatic retries disabled; provider errors, empty or malformed responses, and citation failures produce a clearly labeled extractive fallback. Citation-ID validation confirms that cited passages were retrieved; it does not prove factual entailment. LLM tests use a mocked client; a live OpenAI request has not been verified.
 
 ## Docker Compose
 

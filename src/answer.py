@@ -10,6 +10,12 @@ import os
 from src.rag import SearchResult
 
 _OPENAI_TIMEOUT_SECONDS = 20.0
+_OPENAI_MAX_COMPLETION_TOKENS = 256
+_DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+
+class LLMConfigurationError(RuntimeError):
+    """Raised when explicitly selected LLM mode cannot be configured."""
 
 
 STOP_WORDS = {
@@ -263,11 +269,23 @@ def _is_reference_sentence(sentence: str) -> bool:
 
 def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | None:
     """Generate a concise answer from retrieved evidence and validate its citations."""
-    if not os.getenv("OPENAI_API_KEY"):
-        return None
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise LLMConfigurationError(
+            "LLM mode requires OPENAI_API_KEY. Set it in the process "
+            "environment or a Docker Compose .env file, or switch "
+            "ANSWER_MODE to extractive."
+        )
     try:
         from openai import OpenAI
+    except ImportError:
+        raise LLMConfigurationError(
+            "LLM mode requires the optional OpenAI package. Install it with "
+            "python -m pip install -r requirements-llm.txt, or switch "
+            "ANSWER_MODE to extractive."
+        ) from None
 
+    try:
         evidence = []
         for number, result in enumerate(results, start=1):
             chunk = result.chunk
@@ -276,11 +294,13 @@ def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | No
                 f"{chunk.text[:6000]}"
             )
         response = OpenAI(
+            api_key=api_key,
             timeout=_OPENAI_TIMEOUT_SECONDS,
             max_retries=0,
         ).chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            model=os.getenv("OPENAI_MODEL", "").strip() or _DEFAULT_OPENAI_MODEL,
             temperature=0,
+            max_completion_tokens=_OPENAI_MAX_COMPLETION_TOKENS,
             messages=[
                 {
                     "role": "system",
@@ -298,7 +318,10 @@ def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | No
                 },
             ],
         )
-        body = (response.choices[0].message.content or "").strip()
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", "stop") != "stop":
+            return None
+        body = (choice.message.content or "").strip()
         if not body:
             return None
         allowed = set(range(1, len(results) + 1))
@@ -336,6 +359,18 @@ def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | No
         return None
 
 
+def _llm_fallback_notice(answer_available: bool = False) -> str:
+    if answer_available:
+        return (
+            "This is an extractive answer: optional LLM generation was "
+            "unavailable or its response failed validation."
+        )
+    return (
+        "Optional LLM generation was unavailable or its response failed "
+        "validation; no factual answer is provided."
+    )
+
+
 def generate_answer(
     question: str, results: list[SearchResult], mode: str | None = None
 ) -> str:
@@ -347,18 +382,26 @@ def generate_answer(
         )
 
     answer_mode = (mode or os.getenv("ANSWER_MODE", "extractive")).strip().lower()
+    llm_fallback = False
     if answer_mode == "llm":
-        generated = _generate_llm_answer(question, results)
+        try:
+            generated = _generate_llm_answer(question, results)
+        except LLMConfigurationError as exc:
+            return str(exc)
         if generated:
             return generated
+        llm_fallback = True
 
     question_words = _question_focus(question)
 
     if not question_words:
-        return (
+        message = (
             "The question does not contain enough meaningful terms "
             "to identify relevant evidence."
         )
+        if llm_fallback:
+            return f"{message} {_llm_fallback_notice()}"
+        return message
 
     expanded_terms = _expand_question_terms(question_words)
     candidates = []
@@ -445,11 +488,14 @@ def generate_answer(
             })
 
     if not candidates:
-        return (
+        message = (
             "Relevant passages were retrieved, but no complete sentence "
             "with matching terms could be identified. "
             "No factual answer is provided."
         )
+        if llm_fallback:
+            return f"{message} {_llm_fallback_notice()}"
+        return message
 
     # Avoid presenting weak keyword matches as factual answers.
     candidates = [
@@ -458,11 +504,14 @@ def generate_answer(
     ]
 
     if not candidates:
-        return (
+        message = (
             "Relevant passages were retrieved, but the available sentences "
             "did not meet the answer relevance threshold. "
             "No factual answer is provided."
         )
+        if llm_fallback:
+            return f"{message} {_llm_fallback_notice()}"
+        return message
 
     candidates.sort(key=lambda item: item["score"], reverse=True)
 
@@ -500,7 +549,10 @@ def generate_answer(
             break
 
     if not selected:
-        return "No sufficiently reliable sentence could be selected."
+        message = "No sufficiently reliable sentence could be selected."
+        if llm_fallback:
+            return f"{message} {_llm_fallback_notice()}"
+        return message
 
     lines = ["Based on the retrieved evidence:"]
 
@@ -509,11 +561,14 @@ def generate_answer(
             f"- {item['sentence']} [{number}, p. {item['page']}]"
         )
 
-    lines.append(
-        "\nThis is an extractive answer: sentences are selected from "
-        "retrieved passages, not generated by an LLM. Check the cited "
-        "pages in the original report before relying on individual claims."
-    )
+    if llm_fallback:
+        lines.append(f"\n{_llm_fallback_notice(answer_available=True)}")
+    else:
+        lines.append(
+            "\nThis is an extractive answer: sentences are selected from "
+            "retrieved passages, not generated by an LLM. Check the cited "
+            "pages in the original report before relying on individual claims."
+        )
 
     lines.append("\nSources:")
 

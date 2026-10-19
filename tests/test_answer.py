@@ -287,11 +287,40 @@ def test_optional_llm_rejects_missing_or_malformed_citations(monkeypatch, conten
     assert content not in answer
 
 
-@pytest.mark.parametrize("failure", [TimeoutError("provider timeout"), RuntimeError("provider unavailable")])
-def test_optional_llm_provider_failures_fall_back(monkeypatch, failure):
+class AuthenticationError(Exception):
+    pass
+
+
+class RateLimitError(Exception):
+    pass
+
+
+class APIConnectionError(Exception):
+    pass
+
+
+class ProviderError(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    "failure_type",
+    [
+        TimeoutError,
+        AuthenticationError,
+        RateLimitError,
+        APIConnectionError,
+        ProviderError,
+    ],
+)
+def test_optional_llm_provider_failures_fall_back_without_leaking_details(
+    monkeypatch, caplog, failure_type
+):
+    secret_marker = "test-key"
+
     class FakeCompletions:
         def create(self, **kwargs):
-            raise failure
+            raise failure_type(f"provider diagnostic with {secret_marker}")
 
     class FakeOpenAI:
         def __init__(self, **kwargs):
@@ -302,6 +331,9 @@ def test_optional_llm_provider_failures_fall_back(monkeypatch, failure):
     answer = generate_answer("What threats are described?", make_results(), mode="llm")
 
     assert "This is an extractive answer" in answer
+    assert "failed validation" in answer
+    assert secret_marker not in answer
+    assert secret_marker not in caplog.text
 
 
 def test_optional_llm_empty_response_falls_back(monkeypatch):
@@ -338,9 +370,56 @@ def test_optional_llm_malformed_provider_response_falls_back(monkeypatch):
     assert "This is an extractive answer" in answer
 
 
-def test_optional_llm_is_not_called_without_credentials(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+def test_optional_llm_truncated_response_falls_back(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="length",
+            message=SimpleNamespace(content="The report describes cyber threats [1]."),
+        )]
+    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **call_kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     answer = generate_answer("What threats are described?", make_results(), mode="llm")
+
+    assert "This is an extractive answer" in answer
+    assert "The report describes cyber threats [1]." not in answer
+
+
+def test_explicit_llm_mode_reports_missing_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ANSWER_MODE", "llm")
+    answer = generate_answer("What threats are described?", make_results())
+    assert "OPENAI_API_KEY" in answer
+    assert "process environment" in answer
+    assert "switch ANSWER_MODE to extractive" in answer
+    assert "extractive answer" not in answer
+
+
+def test_explicit_llm_mode_reports_missing_optional_package(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("ANSWER_MODE", "llm")
+    monkeypatch.setitem(sys.modules, "openai", None)
+
+    answer = generate_answer("What threats are described?", make_results())
+
+    assert "requirements-llm.txt" in answer
+    assert "switch ANSWER_MODE to extractive" in answer
+    assert "test-key" not in answer
+
+
+def test_default_extractive_mode_does_not_import_openai(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setitem(sys.modules, "openai", None)
+
+    answer = generate_answer("What threats are described?", make_results())
+
     assert "This is an extractive answer" in answer
 
 
@@ -354,19 +433,29 @@ def test_optional_llm_uses_bounded_timeout_and_deduplicates_sources(monkeypatch)
         )]
     )
     client_options = {}
+    request_options = {}
+
+    def create_completion(**kwargs):
+        request_options.update(kwargs)
+        return response
 
     class FakeOpenAI:
         def __init__(self, **kwargs):
             client_options.update(kwargs)
             self.chat = SimpleNamespace(
-                completions=SimpleNamespace(create=lambda **call_kwargs: response)
+                completions=SimpleNamespace(create=create_completion)
             )
 
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     answer = generate_answer("What threats are described?", make_results(), mode="llm")
 
-    assert client_options == {"timeout": 20.0, "max_retries": 0}
+    assert client_options == {
+        "api_key": "test-key",
+        "timeout": 20.0,
+        "max_retries": 0,
+    }
+    assert request_options["max_completion_tokens"] == 256
     assert answer.split("Sources:", 1)[1].count("[1]") == 1
 
 
