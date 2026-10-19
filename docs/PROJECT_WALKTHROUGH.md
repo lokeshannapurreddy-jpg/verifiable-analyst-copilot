@@ -19,7 +19,7 @@
 ## Verification
 
 - `tests/test_rag.py` checks lexical retrieval behavior and bibliography/boilerplate filtering.
-- `tests/test_retrieval_evaluation.py` exercises the shared five-query, page-labeled evaluation set across TF-IDF and optional embedding backends.
+- `tests/test_retrieval_evaluation.py` checks semantic ranking and hybrid fusion with deterministic synthetic embeddings, then exercises the shared five-query, page-labeled evaluation set across TF-IDF and optional embedding backends when the local source PDF is available. The PDF-backed cases skip when it is absent.
 - `tests/test_answer.py` checks extractive evidence/citation behavior and mocked optional-provider validation and fallback paths.
 - `tests/test_agent.py`, `tests/test_api.py`, and `tests/test_analytics.py` cover routing, bounded memory, request/reload behavior, aggregate SQLite telemetry, and the opt-in PostgreSQL integration test.
 - `scripts/evaluate_retrieval.py` reports page-level Recall@3, MRR@3, and nDCG@3 after de-duplicating the top-three passage results by page. Its labels are single-reviewer binary relevance judgments checked against the available PDF text; the small set is diagnostic, not a general benchmark or answer-factuality evaluation.
