@@ -1,58 +1,31 @@
 # Verifiable Analyst Copilot
 
-A source-grounded research prototype for exploring public cybercrime reports. It combines page-aware PDF ingestion, configurable evidence retrieval, cited answers, a Streamlit UI, a FastAPI service, bounded follow-up memory, and privacy-conscious query telemetry.
+A research prototype that helps analysts find and verify evidence in long public cybercrime reports. It ingests PDF text as page-linked passages, retrieves relevant evidence, and presents answers with source citations through a Streamlit interface and a FastAPI service.
 
-## What it does
-
-- Extracts PDF text into page-linked passages.
-- Retrieves relevant passages using TF-IDF by default, with optional semantic or hybrid embeddings.
-- Answers from retrieved evidence with an extractive default and optional constrained LLM synthesis.
-- Preserves source title, filename, URL, and page number.
-- Exposes `/health`, `/ask`, `/reload`, and aggregate `/analytics` endpoints.
-- Uses a deterministic tool router for evidence search and index metadata.
-- Keeps a small in-memory context per session for likely follow-up questions.
-- Offers optional LLM synthesis constrained to retrieved passages, with citation-ID validation and extractive fallback.
-- Stores query telemetry without storing raw questions or answers.
-- Supports SQLite by default and PostgreSQL when `DATABASE_URL` is configured.
-- Includes automated tests, Docker packaging, Docker Compose, and GitHub Actions CI.
-
-## Architecture
+## How it works
 
 ```text
-PDF reports
-    |
-    v
-src/ingest.py -> page-linked passages -> src/rag.py (TF-IDF by default)
-                                            |
-Question -> FastAPI -> src/agent.py --------+
-                        |                   |
-                        v                   v
-                  session memory      src/answer.py
-                                            |
-                                            v
-                              cited answer + citations
-                                            |
-                         +------------------+----------------+
-                         v                                   v
-                    Streamlit UI                       FastAPI response
-                                                            |
-                                                            v
-                                               aggregate query telemetry
-                                               SQLite or PostgreSQL
+PDF -> page-aware ingestion -> retrieval (TF-IDF by default; optional semantic/hybrid)
+                                      |                         |
+                               Streamlit UI               FastAPI service
+                                                              |
+                                                 agent tools and bounded
+                                                   in-memory context
+                                                              |
+                                              cited answers and telemetry
 ```
+
+The interfaces use shared retrieval and answer modules. Extractive answers are the default. Optional OpenAI generation receives retrieved passages as evidence; the application validates citation IDs and falls back to extractive answers if generation is unavailable or citations are invalid. Citation validation checks references, not whether a claim is entailed by its source. The API exposes `/health`, `/ask`, `/reload`, and aggregate `/analytics` endpoints. Telemetry uses SQLite by default and can use PostgreSQL when configured.
 
 ## Source report
 
-The demonstration uses Europol's 2025 Internet Organised Crime Threat Assessment report, *Steal, Deal and Repeat: How Cybercriminals Trade and Exploit Your Data*.
+The example report is Europol's *Steal, deal and repeat: How cybercriminals trade and exploit your data*, part of the *Internet Organised Crime Threat Assessment (IOCTA) 2025*. [Official Europol publication](https://www.europol.europa.eu/publication-events/main-reports/steal-deal-and-repeat-how-cybercriminals-trade-and-exploit-your-data).
 
-Official publication page:
-https://www.europol.europa.eu/publication-events/main-reports/steal-deal-and-repeat-how-cybercriminals-trade-and-exploit-your-data
+Download the PDF and save it as `data/reports/iocta_report.pdf`. The source file is intentionally excluded from Git. Streamlit attempts to download the public PDF if the local file is absent. The API and Docker Compose setup expect the local file at that path; provide it before starting them.
 
-Download the PDF and save it as `data/reports/iocta_report.pdf`. The PDF is intentionally excluded from Git. The Streamlit app can attempt to download the public report if the local file is absent; for API and Docker runs, place it in `data/reports` for reliable startup.
+## Run locally (Windows PowerShell)
 
-## Local setup (Windows PowerShell)
-
-Run from the repository root:
+From the repository root, create an environment and install the base dependencies:
 
 ```powershell
 python -m venv .venv
@@ -60,112 +33,62 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Put the report at `data/reports/iocta_report.pdf`.
-
-Start the API in one terminal:
+Place the report at `data/reports/iocta_report.pdf`. Start the API and UI in separate terminals:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
-Start the UI in a second terminal:
-
 ```powershell
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-API documentation: http://127.0.0.1:8000/docs
-Health: http://127.0.0.1:8000/health
-Aggregate telemetry: http://127.0.0.1:8000/analytics
+The API documentation is at `http://127.0.0.1:8000/docs`; the UI is at `http://localhost:8501`.
 
-### Example API request
+## Configuration
 
-```powershell
-$body = @{
-  question = "How do cybercriminals use stolen credentials?"
-  top_k = 3
-  session_id = "demo-session"
-} | ConvertTo-Json
+| Variable | Purpose |
+| --- | --- |
+| `RETRIEVER_BACKEND` | `tfidf` by default; `semantic` or `hybrid` requires `requirements-ml.txt`. |
+| `ANSWER_MODE` | `extractive` by default; `llm` requires `requirements-llm.txt` and `OPENAI_API_KEY`. |
+| `OPENAI_API_KEY` | OpenAI credential for optional LLM answer generation. Supply it through the environment or an untracked local `.env`; never commit it. |
+| `OPENAI_MODEL` | Model name for optional OpenAI generation. |
+| `RELOAD_ADMIN_KEY` | Optional key to protect the API document reload endpoint. |
+| `DATABASE_URL` | Optional telemetry database connection; SQLite is used by default. Compose configures PostgreSQL. |
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask `
-  -ContentType "application/json" -Body $body
-```
-
-Reload the index after adding or replacing a PDF:
+For local TF-IDF and extractive use, the base `requirements.txt` is sufficient. Install optional features separately as needed:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/reload
+.\.venv\Scripts\python.exe -m pip install -r requirements-ml.txt   # semantic/hybrid retrieval
+.\.venv\Scripts\python.exe -m pip install -r requirements-llm.txt  # optional OpenAI generation
 ```
 
-If `RELOAD_ADMIN_KEY` is set in the environment, include it as the `X-Admin-Key` header.
-
-## Tests
-
-The full test suite includes semantic and hybrid retrieval checks, so install the optional ML requirements as well as the base requirements:
-
-```powershell
-python -m pip install -r requirements.txt -r requirements-ml.txt
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-`requirements-ml.txt` remains optional for normal TF-IDF-only use.
+The Docker build supports one optional dependency mode at a time: set `OPTIONAL_DEPENDENCIES=ml` or `OPTIONAL_DEPENDENCIES=llm` in `.env`, then rebuild. These modes cannot be combined in one image. For LLM use, also set `ANSWER_MODE=llm` and supply `OPENAI_API_KEY` securely.
 
 ## Docker Compose
 
-1. Copy `.env.example` to `.env`.
-2. Replace the placeholder values with long random secrets. Avoid URL-reserved characters in `POSTGRES_PASSWORD` unless URL-encoded.
-3. Ensure `data/reports/iocta_report.pdf` exists.
-4. Run:
+1. Copy `.env.example` to `.env` and replace its placeholder secrets with locally generated values.
+2. Put `iocta_report.pdf` in `data/reports/`.
+3. Run `docker compose up --build` from the repository root.
+
+Compose starts the UI, API, and PostgreSQL telemetry database. Do not commit `.env` or API credentials.
+
+## Tests
+
+The complete suite includes semantic and hybrid retrieval tests, so install both dependency sets before running it:
 
 ```powershell
-docker compose up --build
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-ml.txt
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-- UI: http://localhost:8501
-- API docs: http://localhost:8000/docs
+Tests cover TF-IDF and optional semantic/hybrid retrieval, answer selection and citation validation, agent routing and bounded memory, and SQLite telemetry. LLM tests mock the provider; they do not make live OpenAI requests. A PostgreSQL integration test is opt-in through `TEST_DATABASE_URL`; it is skipped when that variable is not configured and has not been verified against a configured test database.
 
-Docker Compose starts PostgreSQL for query telemetry. The application defaults to SQLite when `DATABASE_URL` is not set. The Postgres database is not a vector store: current retrieval remains TF-IDF.
+## Scope and limitations
 
-## Optional semantic retrieval benchmark
+The included retrieval evaluation uses five questions with preliminary expected-page labels; it is not a validated benchmark, and no performance result is claimed. PDF extraction may lose table structure or formatting. Citation IDs establish that referenced passages exist, not that generated statements follow from them. Session context is bounded process memory and resets when the API restarts. This is a research prototype, not a production intelligence platform; verify claims against the cited source pages.
 
-Semantic and hybrid retrievers require the larger optional dependency:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-ml.txt
-.\.venv\Scripts\python.exe scripts/evaluate_retrieval.py
-```
-
-The included benchmark has only five questions and its expected-page labels are preliminary. The previous note's numbers used different labels from the current script, so no score is presented as current; rerun and verify the labels before comparing backends or quoting metrics.
-
-To use semantic or hybrid retrieval in the API, install `requirements-ml.txt` and set `RETRIEVER_BACKEND=semantic` or `RETRIEVER_BACKEND=hybrid`. For Docker Compose, set `OPTIONAL_DEPENDENCIES=ml` in `.env` and rebuild. TF-IDF remains the default; rerun the corrected benchmark before selecting another backend.
-
-## Optional LLM answers
-
-The default answer path is extractive and requires no API key. To enable optional OpenAI synthesis locally, install `requirements-llm.txt`, set `ANSWER_MODE=llm`, and provide `OPENAI_API_KEY` through the environment. Set `OPENAI_MODEL` to choose a supported model. For Docker Compose, use `OPTIONAL_DEPENDENCIES=llm` and set these runtime variables in the untracked `.env` file. The LLM receives retrieved passages only; the application checks that cited evidence IDs exist and that each answer line includes a citation. Invalid or unavailable responses fall back to the extractive answer. This citation check validates references, not whether each generated claim is entailed by its cited passage, so verify the source pages.
-
-## Privacy and security notes
-
-- Query telemetry stores timestamp, hashed session/question identifiers, question length, result count, latency, and status. It does not store raw question text or answer text.
-- Session memory is held in process memory and is bounded by a maximum number of sessions; it resets when the API process restarts.
-- Set `RELOAD_ADMIN_KEY` to protect document reloads when the API is reachable by other users.
-- Do not expose the demo API publicly without adding authentication, rate limiting, HTTPS, deployment-specific secret management, and a review of logging/retention requirements.
-- Do not use session IDs as authentication credentials.
-- The app is a research prototype, not a production intelligence platform.
-
-## Evaluation and limitations
-
-- Automated tests cover selected retrieval, answer selection, agent routing, session-memory, and telemetry behaviors.
-- PostgreSQL telemetry has an opt-in integration check using `TEST_DATABASE_URL`; SQLite remains covered by the default unit test.
-- TF-IDF is the default retriever; relevance scores are not truth or confidence scores.
-- Extractive and optional LLM answers do not independently establish whether a sentence is true; citation checks validate reference IDs, not entailment.
-- The current retrieval benchmark is small and not independently validated.
-- PDF text extraction can produce broken sentences, missing tables, or formatting artifacts.
-- The telemetry database contains aggregate operational metadata, not an analyst-grade incident database.
-- PostgreSQL support is for telemetry storage. pgvector, a React frontend, and public cloud deployment are not implemented in this version.
-
-## Responsible use
-
-Use only authorized, publicly available reports. Verify claims in their original cited pages before relying on them. This prototype does not independently establish the truth of source statements.
+The project demonstrates practical work with document ingestion, retrieval and evaluation, evidence-linked answer generation, Python APIs and UI integration, bounded conversational state, telemetry, testing, and containerized development. These descriptions refer to implemented prototype components, not production deployment or independently validated outcomes.
 
 ## License
 
