@@ -279,6 +279,15 @@ def generate_answer(question: str, results: list[SearchResult]) -> str:
 
     for result in results:
         chunk = result.chunk
+
+        # Reject missing or invalid page numbers before selecting evidence.
+        if (
+            not isinstance(chunk.page, int)
+            or isinstance(chunk.page, bool)
+            or chunk.page < 1
+        ):
+            continue
+
         cleaned_text = _clean_text(chunk.text)
 
         for raw_sentence in _split_sentences(cleaned_text):

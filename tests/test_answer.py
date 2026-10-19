@@ -1,4 +1,4 @@
-﻿from src.answer import generate_answer
+from src.answer import generate_answer
 from src.rag import DocumentChunk, EvidenceRetriever
 
 
@@ -119,3 +119,54 @@ def test_malware_delivery_answer_prioritises_delivery_techniques():
 
     assert "p. 13" in answer
     assert "phishing" in answer.lower() or "malicious attachments" in answer.lower()
+def test_answer_citation_uses_retrieved_chunk_page():
+    results = make_results()
+    answer = generate_answer(
+        "What cyber threats do hybrid threat actors pose?",
+        results,
+    )
+
+    for result in results:
+        if result.chunk.page == 6:
+            assert result.chunk.source == "iocta_report.pdf"
+
+    assert "[1, p. 6]" in answer or "[2, p. 6]" in answer
+
+
+def test_answer_with_no_results_does_not_invent_citations():
+    answer = generate_answer(
+        "What cyber threats do hybrid threat actors pose?",
+        [],
+    )
+
+    assert "no factual answer is provided" in answer.lower()
+    assert "Sources:" not in answer
+
+
+def test_answer_does_not_invent_missing_page_number():
+    chunk = DocumentChunk(
+        text=(
+            "Cybercriminals exploit vulnerabilities in computer systems "
+            "to gain unauthorized access to sensitive information."
+        ),
+        source="iocta_report.pdf",
+        page=0,
+        title="IOCTA 2025",
+    )
+
+    answer = generate_answer(
+        "How do cybercriminals exploit vulnerabilities?",
+        [type("Result", (), {"chunk": chunk, "score": 1.0})()],
+    )
+
+    assert "p. 0" not in answer
+
+
+def test_answer_without_results_has_no_citations():
+    answer = generate_answer(
+        "What cyber threats do hybrid threat actors pose?",
+        [],
+    )
+
+    assert "no factual answer is provided" in answer.lower()
+    assert "Sources:" not in answer
