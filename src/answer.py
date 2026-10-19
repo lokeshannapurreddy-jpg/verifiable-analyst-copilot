@@ -9,6 +9,8 @@ import os
 
 from src.rag import SearchResult
 
+_OPENAI_TIMEOUT_SECONDS = 20.0
+
 
 STOP_WORDS = {
     "the", "and", "for", "are", "was", "were", "with", "that",
@@ -273,7 +275,10 @@ def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | No
                 f"[{number}] {chunk.title}, {chunk.source}, page {chunk.page}\n"
                 f"{chunk.text[:6000]}"
             )
-        response = OpenAI().chat.completions.create(
+        response = OpenAI(
+            timeout=_OPENAI_TIMEOUT_SECONDS,
+            max_retries=0,
+        ).chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             temperature=0,
             messages=[
@@ -297,7 +302,13 @@ def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | No
         if not body:
             return None
         allowed = set(range(1, len(results) + 1))
-        citations = [int(value) for value in re.findall(r"\[(\d+)\]", body)]
+        bracketed = re.findall(r"\[([^\]]*)\]", body)
+        if any(
+            not value.isdigit() or str(int(value)) != value
+            for value in bracketed
+        ):
+            return None
+        citations = [int(value) for value in bracketed]
         if not citations or any(value not in allowed for value in citations):
             return None
         for line in body.splitlines():

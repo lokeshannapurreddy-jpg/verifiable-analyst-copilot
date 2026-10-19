@@ -7,6 +7,7 @@ from collections import OrderedDict
 from dataclasses import replace
 from pathlib import Path
 from threading import RLock
+from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -84,7 +85,11 @@ def startup_index() -> None:
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=1000)
     top_k: int = Field(default=3, ge=1, le=10)
-    session_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    session_id: str = Field(
+        default_factory=lambda: uuid4().hex,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class AskResponse(BaseModel):

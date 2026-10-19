@@ -1,6 +1,8 @@
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from src.answer import generate_answer
 from src.rag import DocumentChunk, EvidenceRetriever
 
@@ -226,7 +228,7 @@ def test_optional_llm_answer_validates_citations(monkeypatch):
     )
 
     class FakeOpenAI:
-        def __init__(self):
+        def __init__(self, **kwargs):
             self.chat = SimpleNamespace(
                 completions=SimpleNamespace(create=lambda **kwargs: response)
             )
@@ -236,6 +238,7 @@ def test_optional_llm_answer_validates_citations(monkeypatch):
     answer = generate_answer("What threats are described?", make_results(), mode="llm")
     assert "The report describes cyber threats [1]." in answer
     assert "Sources:" in answer
+    assert "IOCTA 2025 - iocta_report.pdf, page 6" in answer
 
 
 def test_optional_llm_rejects_unknown_citation_and_falls_back(monkeypatch):
@@ -244,7 +247,7 @@ def test_optional_llm_rejects_unknown_citation_and_falls_back(monkeypatch):
     )
 
     class FakeOpenAI:
-        def __init__(self):
+        def __init__(self, **kwargs):
             self.chat = SimpleNamespace(
                 completions=SimpleNamespace(create=lambda **kwargs: response)
             )
@@ -254,3 +257,118 @@ def test_optional_llm_rejects_unknown_citation_and_falls_back(monkeypatch):
     answer = generate_answer("What threats are described?", make_results(), mode="llm")
     assert "extractive answer" in answer
     assert "[99]" not in answer
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "The report describes cyber threats.",
+        "The report describes cyber threats [source].",
+        "The report describes cyber threats [01].",
+    ],
+)
+def test_optional_llm_rejects_missing_or_malformed_citations(monkeypatch, content):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **call_kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+
+    assert "This is an extractive answer" in answer
+    assert content not in answer
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("provider timeout"), RuntimeError("provider unavailable")])
+def test_optional_llm_provider_failures_fall_back(monkeypatch, failure):
+    class FakeCompletions:
+        def create(self, **kwargs):
+            raise failure
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+
+    assert "This is an extractive answer" in answer
+
+
+def test_optional_llm_empty_response_falls_back(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="  "))]
+    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **call_kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+
+    assert "This is an extractive answer" in answer
+
+
+def test_optional_llm_malformed_provider_response_falls_back(monkeypatch):
+    response = SimpleNamespace(choices=[])
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **call_kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+
+    assert "This is an extractive answer" in answer
+
+
+def test_optional_llm_is_not_called_without_credentials(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+    assert "This is an extractive answer" in answer
+
+
+def test_optional_llm_uses_bounded_timeout_and_deduplicates_sources(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(
+            message=SimpleNamespace(
+                content="The report describes cyber threats [1].\n"
+                "It also notes infrastructure disruption [1]."
+            )
+        )]
+    )
+    client_options = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            client_options.update(kwargs)
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **call_kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+
+    assert client_options == {"timeout": 20.0, "max_retries": 0}
+    assert answer.split("Sources:", 1)[1].count("[1]") == 1
+
+
+def test_unrelated_question_with_evidence_returns_insufficient_evidence():
+    answer = generate_answer("What is the capital of Mars?", make_results())
+    assert "no factual answer is provided" in answer.lower()

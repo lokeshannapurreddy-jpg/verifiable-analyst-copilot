@@ -5,6 +5,7 @@ import builtins
 import pytest
 
 from src.ingest import ingest_pdf
+from src.evaluation import QUESTIONS
 from src.rag import (
     EvidenceRetriever,
     EmbeddingEvidenceRetriever,
@@ -12,30 +13,6 @@ from src.rag import (
 )
 
 PDF_PATH = Path("data/reports/iocta_report.pdf")
-
-QUESTIONS = [
-    {
-        "question": "How do criminals steal and trade personal data?",
-        "expected_pages": {8, 9, 12},
-    },
-    {
-        "question": "How do cybercriminals use stolen credentials?",
-        "expected_pages": {12, 13},
-    },
-    {
-        "question": "What role do infostealers play in cybercrime?",
-        "expected_pages": {13},
-    },
-    {
-        "question": "How do cybercriminals distribute malware?",
-        "expected_pages": {13, 14, 17},
-    },
-    {
-        "question": "How do criminals monetize stolen data?",
-        "expected_pages": {8, 9, 17},
-    },
-]
-
 
 @pytest.fixture(scope="module")
 def chunks():

@@ -1,9 +1,11 @@
 ﻿import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from math import log2
 from statistics import mean
 
 from src.ingest import ingest_pdf
+from src.evaluation import QUESTIONS
 from src.rag import (
     EvidenceRetriever,
     EmbeddingEvidenceRetriever,
@@ -12,32 +14,10 @@ from src.rag import (
 
 PDF_PATH = Path("data/reports/iocta_report.pdf")
 
-QUESTIONS = [
-    {
-        "question": "How do criminals steal and trade personal data?",
-        "expected_pages": {9, 12},
-    },
-    {
-        "question": "How do cybercriminals use stolen credentials?",
-        "expected_pages": {12, 13},
-    },
-    {
-        "question": "What role do infostealers play in cybercrime?",
-        "expected_pages": {13},
-    },
-    {
-        "question": "How do cybercriminals distribute malware through phishing, infostealers, malicious websites and droppers?",
-        "expected_pages": {13, 14, 17},
-    },
-    {
-        "question": "How do criminals monetize stolen data?",
-        "expected_pages": {9, 17},
-    },
-]
-
-
 def evaluate(name, retriever):
-    scores = []
+    recalls = []
+    reciprocal_ranks = []
+    ndcgs = []
 
     print(f"\n{'=' * 78}")
     print(f"{name.upper()} RETRIEVAL EVALUATION")
@@ -45,22 +25,46 @@ def evaluate(name, retriever):
 
     for index, item in enumerate(QUESTIONS, start=1):
         results = retriever.search(item["question"], top_k=3)
-        retrieved_pages = {result.chunk.page for result in results}
+        ranked_pages = list(dict.fromkeys(result.chunk.page for result in results))
+        retrieved_pages = set(ranked_pages)
         expected_pages = item["expected_pages"]
         found_pages = retrieved_pages & expected_pages
         missed_pages = expected_pages - retrieved_pages
         recall = len(found_pages) / len(expected_pages)
-        scores.append(recall)
+        recalls.append(recall)
+        relevant_ranks = [
+            rank for rank, page in enumerate(ranked_pages, start=1)
+            if page in expected_pages
+        ]
+        reciprocal_ranks.append(1 / relevant_ranks[0] if relevant_ranks else 0.0)
+        dcg = sum(
+            1 / log2(rank + 1)
+            for rank, page in enumerate(ranked_pages, start=1)
+            if page in expected_pages and rank <= 3
+        )
+        ideal_relevant = min(len(expected_pages), 3)
+        ideal_dcg = sum(1 / log2(rank + 1) for rank in range(1, ideal_relevant + 1))
+        ndcgs.append(dcg / ideal_dcg if ideal_dcg else 0.0)
 
         print(f"\nQuestion {index}: {item['question']}")
         print(f"  Expected pages:  {sorted(expected_pages)}")
-        print(f"  Retrieved pages: {sorted(retrieved_pages)}")
+        print(f"  Ranked pages:    {ranked_pages}")
         print(f"  Relevant found:  {sorted(found_pages)}")
         print(f"  Relevant missed: {sorted(missed_pages)}")
         print(f"  Recall@3:        {recall:.3f}")
+        print(f"  MRR@3:           {reciprocal_ranks[-1]:.3f}")
+        print(f"  nDCG@3:          {ndcgs[-1]:.3f}")
 
-    print(f"\n{name} mean recall@3: {mean(scores):.3f}")
-    return mean(scores)
+    summary = {
+        "Recall@3": mean(recalls),
+        "MRR@3": mean(reciprocal_ranks),
+        "nDCG@3": mean(ndcgs),
+    }
+    print(
+        f"\n{name} means: "
+        + ", ".join(f"{metric} {score:.3f}" for metric, score in summary.items())
+    )
+    return summary
 
 
 def main():
@@ -73,7 +77,11 @@ def main():
     chunks = ingest_pdf(PDF_PATH, title="Europol IOCTA 2025")
     print(f"Source: {PDF_PATH}")
     print(f"Page-level chunks loaded: {len(chunks)}")
-    print("Note: expected-page labels are preliminary and need manual verification.")
+    print(
+        "Page labels were checked against the local PDF text. They are "
+        "single-reviewer binary judgments, not graded or independently validated."
+    )
+    print("Ranking de-duplicates the top-three passage results by PDF page.")
 
     results = {}
     results["TF-IDF"] = evaluate("TF-IDF", EvidenceRetriever(chunks))
@@ -85,14 +93,22 @@ def main():
     )
 
     print(f"\n{'=' * 78}")
-    print("OVERALL COMPARISON — PRELIMINARY")
+    print("OVERALL COMPARISON - PRELIMINARY")
     print("=" * 78)
-    for name, score in results.items():
-        print(f"{name:10} mean recall@3: {score:.3f}")
+    for name, scores in results.items():
+        summary = ", ".join(
+            f"mean {metric} {score:.3f}"
+            for metric, score in scores.items()
+        )
+        print(f"{name:10} {summary}")
 
-    best_name = max(results, key=results.get)
-    print(f"\nHighest measured score on this small test set: {best_name}")
-    print("This is not a validated benchmark; verify expected pages before drawing conclusions.")
+    for metric in ("Recall@3", "MRR@3", "nDCG@3"):
+        best_name = max(results, key=lambda name: results[name][metric])
+        print(
+            f"Best measured {metric}: {best_name} "
+            f"({results[best_name][metric]:.3f})"
+        )
+    print("This five-question evaluation is diagnostic only and does not establish general retrieval quality.")
 
 
 if __name__ == "__main__":

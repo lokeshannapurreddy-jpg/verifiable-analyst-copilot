@@ -25,6 +25,10 @@ st.set_page_config(
 
 ROOT_DIR = Path(__file__).resolve().parent
 REPORTS_DIR = ROOT_DIR / "data" / "reports"
+RETRIEVER_BACKEND = os.getenv("RETRIEVER_BACKEND", "tfidf").strip().lower()
+ANSWER_MODE = os.getenv("ANSWER_MODE", "extractive").strip().lower()
+RETRIEVER_LABEL = html.escape(RETRIEVER_BACKEND.upper())
+ANSWER_LABEL = html.escape(ANSWER_MODE.upper())
 
 EUROPOL_TITLE = (
     "Steal, Deal and Repeat: How Cybercriminals Trade "
@@ -380,7 +384,7 @@ def load_retriever():
         )
 
     return create_retriever(
-        chunks, os.getenv("RETRIEVER_BACKEND", "tfidf")
+        chunks, RETRIEVER_BACKEND
     )
 
 
@@ -430,7 +434,7 @@ with st.sidebar:
             {status_text}
           </div>
           <div class="small-muted" style="margin-top:7px;">
-            Local PDF search · TF-IDF retrieval
+            Local PDF search · {RETRIEVER_LABEL} retrieval
           </div>
         </div>
         <div class="sidebar-card">
@@ -470,10 +474,11 @@ st.markdown(
 )
 
 m1, m2, m3, m4 = st.columns(4)
+answer_method = "LLM + fallback" if ANSWER_MODE == "llm" else "Extractive"
 metrics = [
     (m1, "PASSAGES INDEXED", f"{indexed_count:,}", "Searchable report excerpts"),
     (m2, "SOURCE DOCUMENTS", "1" if indexed_count else "0", "Public report collection"),
-    (m3, "ANSWER METHOD", "Extractive", "Selected from report text"),
+    (m3, "ANSWER METHOD", answer_method, "Evidence-grounded; fallback available"),
     (m4, "TRACEABILITY", "Page-level", "Evidence keeps page metadata"),
 ]
 for col, label, value, note in metrics:
@@ -515,8 +520,10 @@ if page == "About this project":
               <p class="small-muted">
                 1. Extract text from a public PDF.<br>
                 2. Split text into page-linked passages.<br>
-                3. Retrieve relevant passages with TF-IDF similarity.<br>
-                4. Select matching complete sentences and preserve page citations.
+                3. Retrieve passages with TF-IDF by default; semantic and hybrid
+                embeddings are optional.<br>
+                4. Select extractive sentences by default, or use optional OpenAI
+                synthesis with citation-ID validation and extractive fallback.
               </p>
             </div>
             """,
@@ -528,10 +535,10 @@ if page == "About this project":
             <div class="panel">
               <div class="evidence-title">Important limitations</div>
               <p class="small-muted">
-                This prototype uses lexical retrieval and extractive answer
-                selection, not a generative language model. It may miss relevant
-                evidence, and retrieved statements should be checked against
-                the original report. A relevance score is not a truth score.
+                Retrieval and answers can miss or misrepresent relevant evidence.
+                Citation IDs are checked against retrieved passages, but this does
+                not prove that generated claims are supported. Verify findings in
+                the original report; a relevance score is not a truth score.
               </p>
             </div>
             """,
@@ -633,7 +640,7 @@ if st.session_state.get("last_question"):
         r1, r2, r3 = st.columns(3)
         r1.metric("Evidence passages", len(results))
         r2.metric("Pages represented", len({r.chunk.page for r in results}))
-        r3.metric("Retrieval method", "TF-IDF")
+        r3.metric("Retrieval method", RETRIEVER_BACKEND.upper())
         st.markdown('<div class="section-heading">Source evidence</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="section-sub">Open a passage to inspect the retrieved text and follow the original source.</div>',
@@ -681,7 +688,7 @@ st.markdown(
     f"""
     <div class="footer">
       VERIFIABLE ANALYST COPILOT · RESEARCH PROTOTYPE<br>
-      TF-IDF retrieval · Extractive answer selection · Page-level source traceability<br>
+      {RETRIEVER_LABEL} retrieval · {ANSWER_LABEL} answer mode · Page-level source traceability<br>
       Primary source: <a href="{EUROPOL_URL}" target="_blank">Europol IOCTA 2025</a>
     </div>
     """,

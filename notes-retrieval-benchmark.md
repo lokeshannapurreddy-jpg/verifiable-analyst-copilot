@@ -1,7 +1,7 @@
 # Retrieval Benchmark — Preliminary
 
-`scripts/evaluate_retrieval.py` is the current benchmark entry point. It uses five manually labelled questions and prints Recall@3 for TF-IDF, semantic, and hybrid retrieval. Its labels still need manual verification, so the results are diagnostic only.
+`scripts/evaluate_retrieval.py` is the reproducible evaluation entry point. It uses five manually selected questions with binary page-level relevance labels checked against the local source PDF text. The labels are single-reviewer judgments, not graded or independently validated. It reports Recall@3, MRR@3, and nDCG@3 for TF-IDF, semantic, and hybrid retrieval.
 
-Earlier result figures in this note were removed because their expected-page labels did not match the current benchmark script. Rerun the script and verify its labels before quoting numeric results in a project application.
+The current diagnostic scores are recorded in `README.md`. Re-run the script from the repository root with the source PDF and optional ML requirements available before comparing results. Retrieval metrics do not assess answer factuality or citation entailment.
 
 TF-IDF remains the runtime default. This benchmark is small and does not establish general retrieval quality.
