@@ -1,21 +1,7 @@
-﻿# Retrieval Benchmark — Preliminary
+# Retrieval Benchmark — Preliminary
 
-Source: Europol IOCTA 2025
-Page-level chunks: 73
-Evaluation questions: 5
+`scripts/evaluate_retrieval.py` is the current benchmark entry point. It uses five manually labelled questions and prints Recall@3 for TF-IDF, semantic, and hybrid retrieval. Its labels still need manual verification, so the results are diagnostic only.
 
-| Retriever | Mean Recall@3 |
-|---|---:|
-| TF-IDF | 0.833 |
-| Hybrid | 0.633 |
-| Semantic | 0.433 |
+Earlier result figures in this note were removed because their expected-page labels did not match the current benchmark script. Rerun the script and verify its labels before quoting numeric results in a project application.
 
-Current best measured approach: TF-IDF.
-
-Known misses:
-- Malware distribution: expected page 14 was missed.
-- Monetization of stolen data: expected page 9 was missed.
-
-Caveat: The expected-page labels are preliminary and require manual verification. This small evaluation set does not establish general retrieval performance.
-
-Tests: 14 passed.
+TF-IDF remains the runtime default. This benchmark is small and does not establish general retrieval quality.

@@ -1,5 +1,7 @@
 ﻿from pathlib import Path
 
+import builtins
+
 import pytest
 
 from src.ingest import ingest_pdf
@@ -55,6 +57,21 @@ def test_tfidf_retrieval_evaluation(chunks):
     mean = sum(scores) / len(scores)
     print(f"\nTF-IDF mean recall@3: {mean:.3f}")
     assert all(0 <= score <= 1 for score in scores)
+
+
+def test_tfidf_does_not_require_optional_ml_dependency(monkeypatch):
+    retriever = EvidenceRetriever()
+    real_import = builtins.__import__
+
+    def reject_sentence_transformers(name, *args, **kwargs):
+        if name == "sentence_transformers":
+            raise ModuleNotFoundError("optional dependency unavailable", name=name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", reject_sentence_transformers)
+    assert retriever.search("cybercrime") == []
+    with pytest.raises(RuntimeError, match="requirements-ml.txt"):
+        EmbeddingEvidenceRetriever()
 
 
 def test_semantic_retrieval_evaluation(chunks):

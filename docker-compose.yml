@@ -1,0 +1,61 @@
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: analyst
+      POSTGRES_USER: analyst
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analyst -d analyst"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      args:
+        OPTIONAL_DEPENDENCIES: ${OPTIONAL_DEPENDENCIES:-none}
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://analyst:${POSTGRES_PASSWORD}@database:5432/analyst
+      REPORTS_DIRECTORY: /app/data/reports
+      RELOAD_ADMIN_KEY: ${RELOAD_ADMIN_KEY:-}
+      RETRIEVER_BACKEND: ${RETRIEVER_BACKEND:-tfidf}
+      ANSWER_MODE: ${ANSWER_MODE:-extractive}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/reports:/app/data/reports:ro
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      args:
+        OPTIONAL_DEPENDENCIES: ${OPTIONAL_DEPENDENCIES:-none}
+    command: ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+    environment:
+      HOME: /tmp
+      STREAMLIT_CONFIG_DIR: /tmp/.streamlit
+      REPORTS_DIRECTORY: /app/data/reports
+      RETRIEVER_BACKEND: ${RETRIEVER_BACKEND:-tfidf}
+      ANSWER_MODE: ${ANSWER_MODE:-extractive}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data/reports:/app/data/reports:ro
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

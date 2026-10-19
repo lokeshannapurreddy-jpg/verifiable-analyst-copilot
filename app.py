@@ -4,12 +4,13 @@ from dataclasses import replace
 from pathlib import Path
 import html
 import re
+import os
 
 import streamlit as st
 
 from src.answer import generate_answer
 from src.ingest import ingest_directory
-from src.rag import EvidenceRetriever
+from src.rag import create_retriever
 
 
 # ---------------------------------------------------------------------
@@ -343,8 +344,6 @@ def load_retriever():
     import urllib.request
 
     from src.ingest import ingest_pdf
-    from src.rag import EvidenceRetriever
-
     local_pdf = REPORTS_DIR / "iocta_report.pdf"
 
     if local_pdf.is_file():
@@ -380,7 +379,9 @@ def load_retriever():
             "The PDF was loaded, but no readable text was extracted."
         )
 
-    return EvidenceRetriever(chunks)
+    return create_retriever(
+        chunks, os.getenv("RETRIEVER_BACKEND", "tfidf")
+    )
 
 
 # Sidebar

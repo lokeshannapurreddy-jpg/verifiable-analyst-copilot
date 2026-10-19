@@ -162,7 +162,14 @@ class EmbeddingEvidenceRetriever:
     """Retrieve passages using semantic embeddings."""
 
     def __init__(self, chunks=(), model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
-        from sentence_transformers import SentenceTransformer
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise RuntimeError(
+                "Semantic and hybrid retrieval require the optional ML "
+                "dependencies. Install them with: "
+                "python -m pip install -r requirements-ml.txt"
+            ) from exc
         self.chunks = list(chunks)
         self.model = SentenceTransformer(model_name)
         self.embeddings = (
@@ -208,3 +215,17 @@ class HybridEvidenceRetriever:
             SearchResult(results[key], scores[key])
             for key in ordered[:top_k]
         ]
+
+
+def create_retriever(chunks=(), backend: str = "tfidf"):
+    """Create the selected retrieval backend; embeddings remain opt-in."""
+    choices = {
+        "tfidf": EvidenceRetriever,
+        "semantic": EmbeddingEvidenceRetriever,
+        "hybrid": HybridEvidenceRetriever,
+    }
+    try:
+        retriever_type = choices[backend.strip().lower()]
+    except (AttributeError, KeyError):
+        raise ValueError("RETRIEVER_BACKEND must be tfidf, semantic, or hybrid")
+    return retriever_type(chunks)

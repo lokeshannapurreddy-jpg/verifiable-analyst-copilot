@@ -1,0 +1,10 @@
+.git
+.venv
+venv
+__pycache__
+.pytest_cache
+*.py[cod]
+.env
+data/analytics.db
+data/processed
+data/reports/*.pdf

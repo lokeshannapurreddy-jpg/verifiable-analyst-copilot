@@ -1,3 +1,6 @@
+import sys
+from types import SimpleNamespace
+
 from src.answer import generate_answer
 from src.rag import DocumentChunk, EvidenceRetriever
 
@@ -215,3 +218,39 @@ def test_answer_without_results_has_no_citations():
 
     assert "no factual answer is provided" in answer.lower()
     assert "Sources:" not in answer
+
+
+def test_optional_llm_answer_validates_citations(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="The report describes cyber threats [1]."))]
+    )
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+    assert "The report describes cyber threats [1]." in answer
+    assert "Sources:" in answer
+
+
+def test_optional_llm_rejects_unknown_citation_and_falls_back(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="The report says this [99]."))]
+    )
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: response)
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    answer = generate_answer("What threats are described?", make_results(), mode="llm")
+    assert "extractive answer" in answer
+    assert "[99]" not in answer

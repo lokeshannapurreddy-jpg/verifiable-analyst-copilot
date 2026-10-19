@@ -1,4 +1,4 @@
-﻿fastapi
+fastapi
 uvicorn[standard]
 streamlit
 pandas
@@ -8,5 +8,5 @@ pytest
 httpx
 python-dotenv
 sqlalchemy
-openai
+psycopg[binary]
 pypdf

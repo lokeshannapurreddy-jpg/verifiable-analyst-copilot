@@ -1,0 +1,3 @@
+# Optional provider for evidence-grounded answer synthesis.
+-r requirements.txt
+openai
