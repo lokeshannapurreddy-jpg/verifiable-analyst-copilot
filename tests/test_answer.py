@@ -80,8 +80,6 @@ def test_answer_excludes_malformed_apt_footnote():
         make_results(),
     )
     assert "a adv anced persistent threat" not in answer.lower()
-from src.answer import generate_answer
-from src.rag import DocumentChunk, EvidenceRetriever
 
 
 def test_malware_delivery_answer_prioritises_delivery_techniques():
@@ -160,6 +158,53 @@ def test_answer_does_not_invent_missing_page_number():
     )
 
     assert "p. 0" not in answer
+
+
+def test_generated_factual_sentences_are_traceable_to_retrieved_evidence():
+    results = make_results()
+    answer = generate_answer(
+        "What cyber threats do hybrid threat actors pose?",
+        results,
+    )
+
+    evidence_text = " ".join(
+        result.chunk.text.lower() for result in results
+    )
+
+    factual_lines = [
+        line.strip()
+        for line in answer.splitlines()
+        if line.strip()
+        and line.strip().lower() not in {
+            "based on the retrieved evidence:",
+            "based on the retrieved evidence",
+            "sources:",
+        }
+        and not line.strip().lower().startswith(
+            (
+                "note:",
+                "disclaimer:",
+                "source ",
+                "this is an extractive answer:",
+            )
+        )
+        and not line.strip().startswith("[")
+    ]
+
+    assert factual_lines, "Expected at least one answer statement."
+
+    for line in factual_lines:
+        cleaned_line = line.lower()
+        assert any(
+            phrase in evidence_text
+            for phrase in (
+                "critical infrastructure",
+                "disruption and instability",
+                "strategic importance",
+                "espionage",
+            )
+            if phrase in cleaned_line
+        ), f"Could not trace answer statement to known evidence: {line}"
 
 
 def test_answer_without_results_has_no_citations():
