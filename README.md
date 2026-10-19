@@ -84,7 +84,7 @@ The complete suite includes semantic and hybrid retrieval tests, so install both
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Tests cover TF-IDF and optional semantic/hybrid retrieval, answer selection and citation validation, mocked LLM failure/fallback paths, agent routing and bounded memory, FastAPI request bounds and reload authorization, and SQLite telemetry. They do not make live OpenAI requests. A PostgreSQL integration test is opt-in through `TEST_DATABASE_URL`; it is skipped when that variable is not configured and has not been verified against a configured test database. Use a separate disposable test database for that check.
+Tests cover TF-IDF and optional semantic/hybrid retrieval, answer selection and citation validation, mocked LLM failure/fallback paths, agent routing and bounded memory, FastAPI request bounds and reload authorization, and SQLite telemetry. They do not make live OpenAI requests. A PostgreSQL integration test is opt-in through `TEST_DATABASE_URL` and is skipped when that variable is not configured. It accepts only a local PostgreSQL host (`localhost`, `127.0.0.1`, `::1`, or the Compose `database` service), the dedicated `analyst_test` database, and URLs without query parameters; it then removes its test row. The integration test was run against a disposable local Docker Compose PostgreSQL database; this does not verify production or remote database configuration.
 
 ## Scope and limitations
 
