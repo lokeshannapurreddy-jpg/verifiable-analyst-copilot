@@ -313,7 +313,7 @@ def _generate_llm_answer(question: str, results: list[SearchResult]) -> str | No
             return None
         for line in body.splitlines():
             line = line.strip()
-            if not line or line.startswith("#"):
+            if not line:
                 continue
             sentences = re.split(r"(?<=[.!?])\s+", line)
             if any(

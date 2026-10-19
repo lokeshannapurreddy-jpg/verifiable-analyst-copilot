@@ -39,6 +39,9 @@ EUROPOL_URL = (
 RETRIEVER_BACKEND = os.getenv("RETRIEVER_BACKEND", "tfidf").strip().lower()
 retriever = create_retriever(backend=RETRIEVER_BACKEND)
 index_error: str | None = None
+_SAFE_INDEX_ERROR = (
+    "Document indexing failed; verify the local source PDF and retrieval configuration."
+)
 _sessions: OrderedDict[str, SessionMemory] = OrderedDict()
 _sessions_lock = RLock()
 _MAX_SESSIONS = 500
@@ -78,8 +81,9 @@ def startup_index() -> None:
     global index_error
     try:
         load_documents()
-    except Exception as exc:
-        index_error = f"{type(exc).__name__}: {exc}"
+    except Exception:
+        # Startup details can contain local paths or provider/model diagnostics.
+        index_error = _SAFE_INDEX_ERROR
 
 
 class AskRequest(BaseModel):
@@ -182,7 +186,10 @@ def reload_documents(x_admin_key: str | None = Header(default=None)):
     try:
         count = load_documents()
         return {"status": "success", "indexed_chunks": count}
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="No readable source PDF is available. Add a valid PDF and retry.",
+        ) from None
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Document reload failed.") from exc

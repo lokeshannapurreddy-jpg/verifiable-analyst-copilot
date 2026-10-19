@@ -17,6 +17,8 @@ PDF -> page-aware ingestion -> retrieval (TF-IDF by default; optional semantic/h
 
 The interfaces use shared retrieval and answer modules. Extractive answers are the default. Optional OpenAI generation receives retrieved passages as evidence; the application validates citation IDs and falls back to extractive answers if generation is unavailable or citations are invalid. Citation validation checks references, not whether a claim is entailed by its source. The API exposes `/health`, `/ask`, `/reload`, and aggregate `/analytics` endpoints. Telemetry uses SQLite by default and can use PostgreSQL when configured.
 
+Retriever `min_score` thresholds use each backend's native score units: keyword-boosted TF-IDF cosine, embedding cosine similarity, or hybrid reciprocal-rank-fusion score. These scores are not directly comparable across backends. Nonpositive `top_k` returns no results; non-integer `top_k` and non-finite `min_score` values are rejected.
+
 ## Source report
 
 The example report is Europol's *Steal, deal and repeat: How cybercriminals trade and exploit your data*, part of the *Internet Organised Crime Threat Assessment (IOCTA) 2025*. [Official Europol publication](https://www.europol.europa.eu/publication-events/main-reports/steal-deal-and-repeat-how-cybercriminals-trade-and-exploit-your-data).
@@ -84,7 +86,7 @@ The complete suite includes semantic and hybrid retrieval tests, so install both
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Tests cover TF-IDF and deterministic synthetic semantic/hybrid ranking, answer selection and citation validation, mocked LLM failure/fallback paths, agent routing and bounded memory, FastAPI request bounds and reload authorization, and SQLite telemetry. They do not make live OpenAI requests. Three additional retrieval-evaluation tests run against the local source PDF and are skipped when that excluded file is absent. A PostgreSQL integration test is opt-in through `TEST_DATABASE_URL` and is skipped when that variable is not configured. It accepts only a local PostgreSQL host (`localhost`, `127.0.0.1`, `::1`, or the Compose `database` service), the dedicated `analyst_test` database, and URLs without query parameters; it then removes its test row. The integration test was run against a disposable local Docker Compose PostgreSQL database; this does not verify production or remote database configuration.
+Tests cover TF-IDF and deterministic synthetic semantic/hybrid ranking, hand-checkable retrieval metrics, answer selection and citation validation, mocked LLM failure/fallback paths, agent routing and bounded memory, FastAPI request bounds and reload authorization, and SQLite telemetry. They do not make live OpenAI requests. Three additional retrieval-evaluation tests run against the local source PDF and are skipped when that excluded file is absent. A PostgreSQL integration test is opt-in through `TEST_DATABASE_URL` and is skipped when that variable is not configured. It accepts only a local PostgreSQL host (`localhost`, `127.0.0.1`, `::1`, or the Compose `database` service), the dedicated `analyst_test` database, and URLs without query parameters; it then removes its test row. The integration test was run against a disposable local Docker Compose PostgreSQL database; this does not verify production or remote database configuration.
 
 ## Scope and limitations
 
@@ -100,7 +102,7 @@ The five page-level relevance labels were checked against the local PDF text. Th
 | Retriever | Recall@3 | MRR@3 | nDCG@3 |
 | --- | ---: | ---: | ---: |
 | TF-IDF | 0.833 | 0.700 | 0.695 |
-| Semantic | 0.433 | 0.400 | 0.337 |
+| Semantic | 0.533 | 0.467 | 0.430 |
 | Hybrid | 0.633 | 0.867 | 0.621 |
 
 These are diagnostic results on this small set, not general performance claims; the optional embedding model must be available locally or downloaded. PDF extraction may lose table structure or formatting. Citation IDs establish that referenced passages exist, not that generated statements follow from them. Session context is bounded process memory and resets when the API restarts. This is a research prototype, not a production intelligence platform; verify claims against the cited source pages.

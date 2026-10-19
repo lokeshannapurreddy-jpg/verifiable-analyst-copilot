@@ -88,6 +88,37 @@ def test_analytics_endpoint_returns_safe_error_on_storage_failure(monkeypatch):
     assert error.value.status_code == 503
 
 
+def test_health_does_not_expose_startup_exception_details(monkeypatch):
+    monkeypatch.setattr(api, "retriever", SimpleNamespace(chunks=[]))
+
+    def fail_loading():
+        raise FileNotFoundError("C:\\private\\reports\\secret.pdf")
+
+    monkeypatch.setattr(api, "index_error", None)
+    monkeypatch.setattr(api, "load_documents", fail_loading)
+    api.startup_index()
+
+    response = api.health()
+
+    assert response["index_error"] == api._SAFE_INDEX_ERROR
+    assert "C:\\private" not in str(response)
+
+
+def test_reload_does_not_expose_local_paths(monkeypatch):
+    monkeypatch.setenv("RELOAD_ADMIN_KEY", "test-only-key")
+
+    def fail_loading():
+        raise FileNotFoundError("C:\\private\\reports\\secret.pdf")
+
+    monkeypatch.setattr(api, "load_documents", fail_loading)
+
+    with pytest.raises(HTTPException) as error:
+        api.reload_documents(x_admin_key="test-only-key")
+
+    assert error.value.status_code == 503
+    assert "C:\\private" not in error.value.detail
+
+
 def test_session_memory_is_isolated_by_session_id():
     first_id = f"test-{uuid4()}"
     second_id = f"test-{uuid4()}"

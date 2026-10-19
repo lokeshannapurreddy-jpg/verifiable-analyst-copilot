@@ -11,6 +11,7 @@
 ## Design choices and trade-offs
 
 - TF-IDF keeps the normal local path simple and does not require embedding downloads. Semantic and hybrid modes trade extra dependencies and model loading for a different retrieval signal.
+- Retrieval applies the same nonempty, useful-passage, and reference filters to every backend. `min_score` uses backend-native units (boosted TF-IDF cosine, embedding cosine, or hybrid reciprocal-rank-fusion score), so scores should not be compared directly across backends. Equal semantic scores retain input order; hybrid score ties retain lexical-then-semantic insertion order.
 - Extractive answers keep the default response tied to text actually present in a retrieved passage. The optional LLM mode improves synthesis but citation-ID checks only show that referenced passages were retrieved; they do not prove entailment or truth.
 - The agent is intentionally deterministic. It selects from a small set of tools rather than delegating control to an autonomous LLM.
 - PostgreSQL stores telemetry, not vectors. The source PDF is provided locally and excluded from Git.

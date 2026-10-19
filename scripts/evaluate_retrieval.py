@@ -1,11 +1,10 @@
 ﻿import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from math import log2
 from statistics import mean
 
 from src.ingest import ingest_pdf
-from src.evaluation import QUESTIONS
+from src.evaluation import QUESTIONS, ranking_metrics
 from src.rag import (
     EvidenceRetriever,
     EmbeddingEvidenceRetriever,
@@ -30,21 +29,11 @@ def evaluate(name, retriever):
         expected_pages = item["expected_pages"]
         found_pages = retrieved_pages & expected_pages
         missed_pages = expected_pages - retrieved_pages
-        recall = len(found_pages) / len(expected_pages)
+        metrics = ranking_metrics(ranked_pages, expected_pages, k=3)
+        recall = metrics["Recall@3"]
         recalls.append(recall)
-        relevant_ranks = [
-            rank for rank, page in enumerate(ranked_pages, start=1)
-            if page in expected_pages
-        ]
-        reciprocal_ranks.append(1 / relevant_ranks[0] if relevant_ranks else 0.0)
-        dcg = sum(
-            1 / log2(rank + 1)
-            for rank, page in enumerate(ranked_pages, start=1)
-            if page in expected_pages and rank <= 3
-        )
-        ideal_relevant = min(len(expected_pages), 3)
-        ideal_dcg = sum(1 / log2(rank + 1) for rank in range(1, ideal_relevant + 1))
-        ndcgs.append(dcg / ideal_dcg if ideal_dcg else 0.0)
+        reciprocal_ranks.append(metrics["MRR@3"])
+        ndcgs.append(metrics["nDCG@3"])
 
         print(f"\nQuestion {index}: {item['question']}")
         print(f"  Expected pages:  {sorted(expected_pages)}")

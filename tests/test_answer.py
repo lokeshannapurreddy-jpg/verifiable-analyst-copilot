@@ -265,6 +265,7 @@ def test_optional_llm_rejects_unknown_citation_and_falls_back(monkeypatch):
         "The report describes cyber threats.",
         "The report describes cyber threats [source].",
         "The report describes cyber threats [01].",
+        "# The report establishes these threats\nThe report describes cyber threats [1].",
     ],
 )
 def test_optional_llm_rejects_missing_or_malformed_citations(monkeypatch, content):

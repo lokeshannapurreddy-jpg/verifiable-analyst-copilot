@@ -1,4 +1,8 @@
-﻿from src.rag import DocumentChunk, EvidenceRetriever
+import pytest
+import numpy as np
+
+import src.rag as rag
+from src.rag import DocumentChunk, EvidenceRetriever
 
 
 def make_retriever():
@@ -67,6 +71,39 @@ def test_publication_boilerplate_is_not_returned():
 def test_empty_question_returns_no_evidence():
     retriever = make_retriever()
     assert retriever.search("") == []
+    assert retriever.search(None) == []
+
+
+@pytest.mark.parametrize("top_k", [0, -1])
+def test_nonpositive_top_k_returns_no_evidence(top_k):
+    assert make_retriever().search("stolen credentials", top_k=top_k) == []
+
+
+@pytest.mark.parametrize("top_k", [1.5, True, "2"])
+def test_invalid_top_k_is_rejected(top_k):
+    with pytest.raises(ValueError, match="top_k must be a positive integer"):
+        make_retriever().search("stolen credentials", top_k=top_k)
+
+
+@pytest.mark.parametrize("min_score", [float("nan"), float("inf"), "0.2", True])
+def test_invalid_min_score_is_rejected(min_score):
+    with pytest.raises(ValueError, match="min_score must be a finite number"):
+        make_retriever().search("stolen credentials", min_score=min_score)
+
+
+def test_tfidf_min_score_uses_keyword_boosted_score(monkeypatch):
+    retriever = make_retriever()
+    monkeypatch.setattr(
+        rag,
+        "cosine_similarity",
+        lambda query, matrix: np.full(matrix.shape[0], 0.9),
+    )
+
+    results = retriever.search("stolen credentials", min_score=1.1)
+
+    assert results
+    assert results[0].score >= 1.1
+
 
 def test_bibliography_entries_are_not_returned():
     chunks = [
@@ -104,9 +141,6 @@ def test_bibliography_entries_are_not_returned():
         "TrendMicro" not in result.chunk.text
         for result in results
     )
-from src.rag import DocumentChunk, EvidenceRetriever
-
-
 def test_simple_malware_question_retrieves_relevant_evidence():
     chunks = [
         DocumentChunk(
